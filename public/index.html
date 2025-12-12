@@ -202,16 +202,15 @@
             }
         });
 
-        async function triggerDownload(url, filename, directoryHandle) {
+        async function triggerDownload(mp3Url, filename, directoryHandle) {
             try {
-                // Fetch the file
-                const response = await fetch(url, {
-                    mode: 'cors',
-                    credentials: 'omit'
-                });
+                // Use our proxy API to bypass CORS - this is the key fix!
+                const proxyUrl = `/api/proxy?url=${encodeURIComponent(mp3Url)}`;
+
+                const response = await fetch(proxyUrl);
 
                 if (!response.ok) {
-                    console.error(`Failed to fetch ${filename}`);
+                    console.error(`Failed to fetch ${filename}: ${response.status}`);
                     return false;
                 }
 
@@ -219,18 +218,13 @@
 
                 // If we have a directory handle (Chrome/Edge), save to selected folder
                 if (directoryHandle) {
-                    try {
-                        const fileHandle = await directoryHandle.getFileHandle(filename, { create: true });
-                        const writable = await fileHandle.createWritable();
-                        await writable.write(blob);
-                        await writable.close();
-                        return true;
-                    } catch (err) {
-                        console.error(`Failed to save ${filename} to directory:`, err);
-                        return false;
-                    }
+                    const fileHandle = await directoryHandle.getFileHandle(filename, { create: true });
+                    const writable = await fileHandle.createWritable();
+                    await writable.write(blob);
+                    await writable.close();
+                    return true;
                 } else {
-                    // Fallback: traditional download (will prompt each time in some browsers)
+                    // Fallback for browsers without File System Access API
                     const blobUrl = window.URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = blobUrl;
@@ -239,18 +233,16 @@
                     document.body.appendChild(a);
                     a.click();
 
-                    // Clean up
                     setTimeout(() => {
                         document.body.removeChild(a);
                         window.URL.revokeObjectURL(blobUrl);
                     }, 100);
 
-                    // Add small delay to prevent browser blocking
                     await new Promise(resolve => setTimeout(resolve, 300));
                     return true;
                 }
             } catch (error) {
-                console.error('Download error:', error);
+                console.error(`Download error for ${filename}:`, error);
                 return false;
             }
         }
