@@ -125,22 +125,28 @@
                 // Process each podcast URL
                 for (let i = 0; i < listData.podcast_urls.length; i++) {
                     const podcastUrl = listData.podcast_urls[i];
-                    
-                    statusMessage.textContent = `Processing podcast ${i + 1}/${totalPodcasts}: ${podcastUrl}`;
-                    
+
+                    statusMessage.textContent = `Processing podcast ${i + 1}/${totalPodcasts}`;
+
                     // Get the MP3 URL
                     const downloadResponse = await fetch(`/api/download?url=${encodeURIComponent(podcastUrl)}`);
                     const downloadData = await downloadResponse.json();
 
                     if (downloadData.mp3_url) {
+                        // Extract filename from URL
+                        const filename = downloadData.mp3_url.split('/').pop().split('?')[0];
+
                         // Trigger download of the MP3 file
-                        triggerDownload(downloadData.mp3_url);
+                        await triggerDownload(downloadData.mp3_url, filename);
                         completedCount++;
-                        
+
                         // Update progress
                         const percent = Math.round((i + 1) / totalPodcasts * 100);
                         progress.style.width = `${percent}%`;
                         progressText.textContent = `${percent}%`;
+
+                        // Add small delay to prevent browser blocking downloads
+                        await new Promise(resolve => setTimeout(resolve, 500));
                     } else {
                         console.log(`Failed to get MP3 URL for: ${podcastUrl}`);
                     }
@@ -148,8 +154,10 @@
 
                 // Show final results
                 resultText.innerHTML = `
-                    Successfully started downloads for ${completedCount} podcasts out of ${totalPodcasts}.<br>
-                    Your browser should open save dialogs for each podcast.
+                    Successfully downloaded ${completedCount} podcasts out of ${totalPodcasts}.<br>
+                    Files are saved in your browser's Downloads folder.<br>
+                    <small>Note: Due to browser security, each file downloads separately.
+                    Check your Downloads folder for all files.</small>
                 `;
             } catch (error) {
                 resultText.innerHTML = `Error: ${error.message}`;
@@ -160,14 +168,40 @@
             }
         });
 
-        function triggerDownload(url) {
-            const a = document.createElement('a');
-            a.href = url;
-            a.target = '_blank';  // Opens download in a new tab/window
-            a.rel = 'noopener noreferrer';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
+        async function triggerDownload(url, filename) {
+            try {
+                // Fetch the file and download it as a blob to bypass CORS restrictions
+                const response = await fetch(url, {
+                    mode: 'cors',
+                    credentials: 'omit'
+                });
+
+                if (!response.ok) {
+                    // Fallback: open in new tab if fetch fails
+                    window.open(url, '_blank');
+                    return;
+                }
+
+                const blob = await response.blob();
+                const blobUrl = window.URL.createObjectURL(blob);
+
+                const a = document.createElement('a');
+                a.href = blobUrl;
+                a.download = filename || 'podcast.mp3';
+                a.style.display = 'none';
+                document.body.appendChild(a);
+                a.click();
+
+                // Clean up
+                setTimeout(() => {
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(blobUrl);
+                }, 100);
+            } catch (error) {
+                console.error('Download error:', error);
+                // Fallback: open in new tab
+                window.open(url, '_blank');
+            }
         }
     </script>
 </body>
