@@ -1,61 +1,66 @@
 # SFI Podcast Downloader
 
-A Python tool to download podcasts from SFI (Swedish Radio International).
+A tool to download all podcasts from SFI (Swedish for Immigrants) - available as both a Python CLI and a web app.
+
+## Live Demo
+
+**https://sfipodd.vercel.app/**
 
 ## Features
 
-- Download podcasts from SFI
-- Manage downloaded podcast files
-- Simple one-click web interface for easy use
-- Deployable on Vercel for instant access
+- Download all 246+ SFI podcasts with one click
+- **Web version**: Select folder once, all files download automatically (Chrome/Edge)
+- **CLI version**: Run locally with Python
+- No popups or interruptions - smooth batch download
 
-## Installation
+## Web Usage
 
-1. Clone this repository:
+1. Visit **https://sfipodd.vercel.app/**
+2. Click **"Download All Podcasts"**
+3. Select a folder (asked only once)
+4. All podcasts download automatically to your chosen folder
+
+*Best experience in Chrome or Edge (uses File System Access API)*
+
+## Local CLI Usage
+
 ```bash
-git clone <your-repository-url>
+# Clone repository
+git clone https://github.com/tathienbao/sfipodd.git
 cd sfipodd
-```
 
-2. Install the dependencies:
-```bash
+# Install dependencies
 pip install -r requirements.txt
-```
 
-## Usage
-
-### Local Usage
-Run the main script:
-```bash
+# Run the downloader
 python sfi_podcast_downloader.py
 ```
 
-### Web Deployment (Vercel)
-Deploy directly to Vercel for a web-based solution:
-1. Push your code to a GitHub repository
-2. Connect to Vercel and deploy
-3. Access the simple one-click download interface from anywhere
-
-The web interface allows you to download all SFI podcasts with a single button click.
+Podcasts will be saved to `sfi_podcasts/` folder.
 
 ## Project Structure
 
 ```
 sfipodd/
-├── sfi_podcast_downloader.py  # Main script
-├── api/download.py             # API endpoint for web version
-├── index.html                  # Web interface
-├── sfi_podcasts/              # Directory for downloaded podcasts
-├── package.json               # Node.js dependencies for Vercel
-├── vercel.json                # Vercel configuration
-├── requirements.txt           # Python dependencies
-├── README.md                  # This documentation
-└── .gitignore                 # Git ignore rules
+├── api/
+│   ├── list.py           # API: Get all podcast URLs
+│   ├── download.py       # API: Extract MP3 URL from podcast page
+│   ├── proxy.py          # API: Proxy MP3 downloads (bypass CORS)
+│   └── requirements.txt  # Python dependencies for Vercel
+├── public/
+│   └── index.html        # Web interface
+├── sfi_podcast_downloader.py  # CLI script for local use
+├── vercel.json           # Vercel configuration
+├── package.json          # Node.js config
+├── requirements.txt      # Python dependencies (local)
+└── README.md
 ```
 
-## Contributions
+## How It Works
 
-All contributions are welcome! Please create an issue or submit a pull request.
+1. Scrapes podcast list from sfipodd.se
+2. Extracts MP3 URLs from each podcast page
+3. Downloads MP3 files (via proxy to bypass CORS in web version)
 
 ## License
 
