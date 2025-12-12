@@ -33,18 +33,20 @@ class handler(BaseHTTPRequestHandler):
             filtered_links = []
             for link in links:
                 # Remove fragment identifiers (e.g., #comment-12345)
-                clean_link = link.split('#')[0]
+                clean_link = link.split('#')[0].split('?')[0]
 
                 # Only include links that look like podcast pages (not homepage, search, etc.)
                 if ('sfipodd.se/' in clean_link and
-                    clean_link != 'https://sfipodd.se/' and
-                    clean_link != 'http://sfipodd.se/' and
+                    clean_link not in ['https://sfipodd.se/', 'http://sfipodd.se/',
+                                       'https://sfipodd.se', 'http://sfipodd.se'] and
                     'search' not in clean_link.lower() and
-                    'sok-en-podd' not in clean_link and
-                    'om-sfi-podd' not in clean_link and
-                    'kontakt' not in clean_link and
-                    'category' not in clean_link and
-                    not clean_link.endswith('/')):
+                    '/sok-en-podd' not in clean_link and
+                    '/om-sfi-podd' not in clean_link and
+                    '/kontakt' not in clean_link and
+                    '/category' not in clean_link and
+                    '/tag/' not in clean_link and
+                    '/feed' not in clean_link and
+                    len(clean_link.replace('http://sfipodd.se/', '').replace('https://sfipodd.se/', '').strip('/')) > 0):
                     filtered_links.append(clean_link)
 
             # Remove duplicates
