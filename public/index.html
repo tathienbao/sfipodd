@@ -90,6 +90,8 @@
     </div>
 
     <script>
+        let directoryHandle = null;
+
         document.getElementById('downloadBtn').addEventListener('click', async () => {
             const btn = document.getElementById('downloadBtn');
             const loading = document.getElementById('loading');
@@ -107,8 +109,28 @@
             progressText.textContent = '0%';
 
             try {
+                // Check if File System Access API is supported (Chrome/Edge)
+                const useFileSystemAPI = 'showDirectoryPicker' in window;
+
+                if (useFileSystemAPI) {
+                    statusMessage.textContent = 'Please select a folder to save all podcasts...';
+
+                    // Ask user to select a directory ONCE
+                    try {
+                        directoryHandle = await window.showDirectoryPicker({
+                            mode: 'readwrite',
+                            startIn: 'downloads'
+                        });
+                    } catch (err) {
+                        if (err.name === 'AbortError') {
+                            throw new Error('You must select a folder to continue');
+                        }
+                        throw err;
+                    }
+                }
+
                 statusMessage.textContent = 'Fetching podcast list...';
-                
+
                 // First, get the list of podcasts
                 const listResponse = await fetch('/api/list');
                 const listData = await listResponse.json();
@@ -119,6 +141,7 @@
 
                 const totalPodcasts = listData.podcast_urls.length;
                 let completedCount = 0;
+                let failedCount = 0;
 
                 statusMessage.textContent = `Found ${totalPodcasts} podcasts. Starting download...`;
 
@@ -126,7 +149,7 @@
                 for (let i = 0; i < listData.podcast_urls.length; i++) {
                     const podcastUrl = listData.podcast_urls[i];
 
-                    statusMessage.textContent = `Processing podcast ${i + 1}/${totalPodcasts}`;
+                    statusMessage.textContent = `Downloading ${i + 1}/${totalPodcasts}`;
 
                     // Get the MP3 URL
                     const downloadResponse = await fetch(`/api/download?url=${encodeURIComponent(podcastUrl)}`);
@@ -137,28 +160,39 @@
                         const filename = downloadData.mp3_url.split('/').pop().split('?')[0];
 
                         // Trigger download of the MP3 file
-                        await triggerDownload(downloadData.mp3_url, filename);
-                        completedCount++;
+                        const success = await triggerDownload(downloadData.mp3_url, filename, directoryHandle);
+
+                        if (success) {
+                            completedCount++;
+                        } else {
+                            failedCount++;
+                        }
 
                         // Update progress
                         const percent = Math.round((i + 1) / totalPodcasts * 100);
                         progress.style.width = `${percent}%`;
                         progressText.textContent = `${percent}%`;
-
-                        // Add small delay to prevent browser blocking downloads
-                        await new Promise(resolve => setTimeout(resolve, 500));
                     } else {
                         console.log(`Failed to get MP3 URL for: ${podcastUrl}`);
+                        failedCount++;
                     }
                 }
 
                 // Show final results
-                resultText.innerHTML = `
-                    Successfully downloaded ${completedCount} podcasts out of ${totalPodcasts}.<br>
-                    Files are saved in your browser's Downloads folder.<br>
-                    <small>Note: Due to browser security, each file downloads separately.
-                    Check your Downloads folder for all files.</small>
-                `;
+                if (directoryHandle) {
+                    resultText.innerHTML = `
+                        ✅ Successfully downloaded ${completedCount} podcasts to the selected folder!<br>
+                        ${failedCount > 0 ? `⚠️ Failed: ${failedCount}<br>` : ''}
+                        <small>All files are saved in the folder you selected.</small>
+                    `;
+                } else {
+                    resultText.innerHTML = `
+                        Successfully downloaded ${completedCount} podcasts.<br>
+                        ${failedCount > 0 ? `⚠️ Failed: ${failedCount}<br>` : ''}
+                        Files are saved in your browser's Downloads folder.<br>
+                        <small>Tip: Use Chrome or Edge to select a custom folder (asked only once).</small>
+                    `;
+                }
             } catch (error) {
                 resultText.innerHTML = `Error: ${error.message}`;
             } finally {
@@ -168,39 +202,56 @@
             }
         });
 
-        async function triggerDownload(url, filename) {
+        async function triggerDownload(url, filename, directoryHandle) {
             try {
-                // Fetch the file and download it as a blob to bypass CORS restrictions
+                // Fetch the file
                 const response = await fetch(url, {
                     mode: 'cors',
                     credentials: 'omit'
                 });
 
                 if (!response.ok) {
-                    // Fallback: open in new tab if fetch fails
-                    window.open(url, '_blank');
-                    return;
+                    console.error(`Failed to fetch ${filename}`);
+                    return false;
                 }
 
                 const blob = await response.blob();
-                const blobUrl = window.URL.createObjectURL(blob);
 
-                const a = document.createElement('a');
-                a.href = blobUrl;
-                a.download = filename || 'podcast.mp3';
-                a.style.display = 'none';
-                document.body.appendChild(a);
-                a.click();
+                // If we have a directory handle (Chrome/Edge), save to selected folder
+                if (directoryHandle) {
+                    try {
+                        const fileHandle = await directoryHandle.getFileHandle(filename, { create: true });
+                        const writable = await fileHandle.createWritable();
+                        await writable.write(blob);
+                        await writable.close();
+                        return true;
+                    } catch (err) {
+                        console.error(`Failed to save ${filename} to directory:`, err);
+                        return false;
+                    }
+                } else {
+                    // Fallback: traditional download (will prompt each time in some browsers)
+                    const blobUrl = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = blobUrl;
+                    a.download = filename || 'podcast.mp3';
+                    a.style.display = 'none';
+                    document.body.appendChild(a);
+                    a.click();
 
-                // Clean up
-                setTimeout(() => {
-                    document.body.removeChild(a);
-                    window.URL.revokeObjectURL(blobUrl);
-                }, 100);
+                    // Clean up
+                    setTimeout(() => {
+                        document.body.removeChild(a);
+                        window.URL.revokeObjectURL(blobUrl);
+                    }, 100);
+
+                    // Add small delay to prevent browser blocking
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                    return true;
+                }
             } catch (error) {
                 console.error('Download error:', error);
-                // Fallback: open in new tab
-                window.open(url, '_blank');
+                return false;
             }
         }
     </script>
