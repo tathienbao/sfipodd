@@ -1,145 +1,59 @@
 import json
-import sys
-import os
-from io import BytesIO
-from urllib.parse import urljoin, urlparse
 import requests
 import re
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, parse_qs
 from bs4 import BeautifulSoup
+from http.server import BaseHTTPRequestHandler
 
 
-def handler(event, context):
-    """Vercel serverless function to handle podcast downloads"""
-    
-    # Set up session
-    session = requests.Session()
-    session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-    })
+class handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        """Vercel serverless function to handle podcast downloads"""
 
-    # Get query parameters
-    params = event.get('queryStringParameters', {})
+        # Set up session
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        })
 
-    # Determine action based on path
-    path = event.get('path', '')
-
-    if path == '/api/download' or params.get('action') == 'download':
-        # Download specific podcast
-        podcast_url = params.get('url')
+        # Parse query parameters
+        query_components = parse_qs(urlparse(self.path).query)
+        podcast_url = query_components.get('url', [None])[0]
 
         if not podcast_url:
-            return {
-                'statusCode': 400,
-                'headers': {
-                    'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*',
-                    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-                    'Access-Control-Allow-Headers': 'Content-Type',
-                },
-                'body': json.dumps({'error': 'Missing podcast URL'})
-            }
+            error_data = json.dumps({'error': 'Missing podcast URL'})
+            self.send_response(400)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+            self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+            self.end_headers()
+            self.wfile.write(error_data.encode())
+            return
 
         # Extract MP3 URL
         mp3_url = extract_mp3_url(podcast_url, session)
 
         if not mp3_url:
-            return {
-                'statusCode': 404,
-                'headers': {
-                    'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*',
-                    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-                    'Access-Control-Allow-Headers': 'Content-Type',
-                },
-                'body': json.dumps({'error': 'No MP3 found for the given URL'})
-            }
+            error_data = json.dumps({'error': 'No MP3 found for the given URL'})
+            self.send_response(404)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+            self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+            self.end_headers()
+            self.wfile.write(error_data.encode())
+            return
 
         # Return the MP3 URL for client-side download
-        return {
-            'statusCode': 200,
-            'headers': {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-                'Access-Control-Allow-Headers': 'Content-Type',
-            },
-            'body': json.dumps({'mp3_url': mp3_url, 'podcast_url': podcast_url})
-        }
-
-    elif path == '/api/list' or params.get('action') == 'list':
-        # List all podcasts
-        try:
-            response = session.get("https://sfipodd.se/sok-en-podd/")
-            response.raise_for_status()
-            soup = BeautifulSoup(response.content, 'html.parser')
-
-            links = []
-            for a in soup.find_all('a', href=True):
-                href = a['href']
-                if 'sfipodd.se/' in href and href not in ['https://sfipodd.se/', 'http://sfipodd.se/']:
-                    if href.startswith('http'):
-                        links.append(href)
-                    else:
-                        links.append(urljoin("https://sfipodd.se/sok-en-podd/", href))
-
-            # Filter and clean links to include only podcast pages
-            filtered_links = []
-            for link in links:
-                # Only include links that look like podcast pages (not homepage, search, etc.)
-                if ('sfipodd.se/' in link and
-                    link != 'https://sfipodd.se/' and
-                    link != 'http://sfipodd.se/' and
-                    'search' not in link.lower() and
-                    not link.endswith('/') and
-                    not link.endswith('/sok-en-podd/') and
-                    not link.endswith('/om-sfi-podd/') and
-                    not link.endswith('/kontakt/')):
-                    filtered_links.append(link)
-
-            # Remove duplicates
-            filtered_links = list(set(filtered_links))
-
-            return {
-                'statusCode': 200,
-                'headers': {
-                    'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*',
-                    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-                    'Access-Control-Allow-Headers': 'Content-Type',
-                },
-                'body': json.dumps({'podcast_urls': filtered_links, 'count': len(filtered_links)})
-            }
-        except Exception as e:
-            return {
-                'statusCode': 500,
-                'headers': {
-                    'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*',
-                    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-                    'Access-Control-Allow-Headers': 'Content-Type',
-                },
-                'body': json.dumps({'error': f'Failed to fetch podcast list: {str(e)}'})
-            }
-    
-    else:
-        # Return API info
-        return {
-            'statusCode': 200,
-            'headers': {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-                'Access-Control-Allow-Headers': 'Content-Type',
-            },
-            'body': json.dumps({
-                'message': 'SFI Podcast Downloader API',
-                'endpoints': {
-                    '/api/list': 'Get list of all podcast URLs',
-                    '/api/download?url=<podcast_url>': 'Get download link for specific podcast'
-                }
-            })
-        }
+        response_data = json.dumps({'mp3_url': mp3_url, 'podcast_url': podcast_url})
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.end_headers()
+        self.wfile.write(response_data.encode())
 
 
 def extract_mp3_url(podcast_url, session):
